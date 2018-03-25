@@ -1,7 +1,7 @@
 # geoipupdate_python
 Pure Python Version Of MaxMind's GeoIP2 Updater
 
-Allows scripted updating of MaxMind GeoIP Databases
+Allows scripted updating of MaxMind GeoIP Databases including on AWS Lambda and GCP AppEngine and Cloud Functions
 
 Usage: geoipupdate.py [-l \<license file\>] [-d \<directory\>] [--verbose]
 
