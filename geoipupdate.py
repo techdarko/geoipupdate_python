@@ -1,26 +1,25 @@
+import base64
 import gzip
 import hashlib
 from optparse import OptionParser
 import os
 import shutil
-import socket
 import sys
 import urllib2
 
 # Python Updater For MaxMind GeoIP Subscriptions
 # No Requirements Outside Standard Python Install
-# If Your Python Build Does Not Support SSL, Change _proto to 'http'
+# If Your Python Build Does Not Support SSL, Change _proto to 'http' if still supported by MaxMind
 # Initial Author: @techdarko
 
 _proto = 'https'
 _update_host = 'updates.maxmind.com'
-_version = '0.01'
+_version = '0.02'
 
 
 class GeoIpUpdater(object):
     def __init__(self, path, _licensekey, _userid, _editions, verbose=False):
         self.editions = _editions
-        self.hash = 0
         self.ip = 0
         self.licensekey = _licensekey
         self.path = path
@@ -54,43 +53,40 @@ class GeoIpUpdater(object):
                     md5.update(chunk)
             return md5.hexdigest()
 
-    def get_ip(self):
-        req = urllib2.Request("{0}://{1}/app/update_getipaddr".format(_proto, _update_host))
-        req.add_header('User-Agent', self.useragent)
-        resp = urllib2.urlopen(req)
-        ip = resp.read()
-        try:
-            socket.inet_aton(ip)
-            self.ip = ip
-            if self.verbose:
-                print("Client IP is {0}".format(self.ip))
-            return
-        except socket.error:
-            print("Bad Value Returned From MaxMind For Client IP. Exiting.")
-            sys.exit(1)
-
     def get_filename(self, productid):
         req = urllib2.Request("{0}://{1}/app/update_getfilename?product_id={2}".format(_proto, _update_host, productid))
         req.add_header('User-Agent', self.useragent)
-        resp = urllib2.urlopen(req)
+        try:
+            resp = urllib2.urlopen(req)
+        except urllib2.HTTPError as e:
+            if e.code == 404:
+                print("Error: Unable to get filename for productID '{0}'. Exiting.".format(productid))
+                sys.exit(1)
+            else:
+                print("Unknown error encountered getting file name for productID '{0}'. "
+                      "Server returned a {1} error. Exiting.".format(productid, e.code))
+                sys.exit(1)
         return resp.read()
 
-    def make_hash(self):
-        self.get_ip()
-        md5 = hashlib.md5()
-        md5.update(self.licensekey)
-        md5.update(self.ip)
-        self.hash = md5.hexdigest()
-        return
-
     def getupdate(self, dbhash, editionid, filename):
-        self.make_hash()
-        req = urllib2.Request("{0}://{1}/app/update_secure?db_md5={2}&challenge_md5={3}&user_id={4}"
-                              "&edition_id={5}".format(_proto, _update_host, dbhash, self.hash, self.userid, editionid))
+        req = urllib2.Request("{0}://{1}/geoip/databases/{2}/update?db_md5={3}".format(_proto, _update_host, editionid,
+                                                                                       dbhash))
         req.add_header('User-Agent', self.useragent)
+        userauth = base64.b64encode("{0}:{1}".format(self.userid, self.licensekey))
+        req.add_header("Authorization", "Basic {0}".format(userauth))
         if self.verbose:
             print("URL: {0}".format(req.get_full_url()))
-        resp = urllib2.urlopen(req)
+        try:
+            resp = urllib2.urlopen(req)
+        except urllib2.HTTPError as e:
+            if e.code == 304:
+                if self.verbose:
+                    print("No New Updates Available For {0}".format(editionid))
+                return False
+            else:
+                print("Unknown error encountered getting database for productID '{0}'. "
+                      "Server returned a {1} error. Exiting.".format(editionid, e.code))
+                sys.exit(1)
         if resp.info().gettype() == 'text/plain':
             data = resp.read()
             if data == "Invalid user ID or license key\n":
